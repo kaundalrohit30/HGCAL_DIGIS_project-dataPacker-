@@ -1,43 +1,36 @@
 import FWCore.ParameterSet.Config as cms
 
-#from HGCalCommissioning.SystemTestEventFilters.configure_sysval_raw2digi_cff import *
-#from HGCalCommissioning.Configuration.configure_sysval_reco_cff import *
-#from HGCalCommissioning.NanoTools.configure_sysval_nano_cff import *
-##from HGCalCommissioning.Geometry.HGCalProducerDatabaseGen_cfi import *
-##from HGCalCommissioning.Geometry.HGCalProducerSimHit_cfi import *
-#from HGCalCommissioning.DQM.hgcalSysValDQM_cff import *
-#from HGCalCommissioning.Configuration.SysValEras_cff import *
-#from Geometry.HGCalMapping.hgcalmapping_cff import *#customise_hgcalmapper
-from HGCalCommissioning.Configuration.ErasTB2025_cff import *
+#from FWCore.ParameterSet.VarParsing import VarParsing
+#options = VarParsing('python')
+#options.register('verbosity',0,mytype=VarParsing.varType.int,
+#                 info='Tester verbosity: 0 = Base+FED prints / 1 = +Module prints / 2 = +Cell prints')
+#options.register('modules','Geometry/HGCalMapping/data/ModuleMaps/modulelocator_test.txt',mytype=VarParsing.varType.string,
+#                 info="Path to module mapper. Absolute, or relative to CMSSW src directory")
+#options.register('sicells','Geometry/HGCalMapping/data/CellMaps/WaferCellMapTraces.txt',mytype=VarParsing.varType.string,
+#                 info="Path to Si cell mapper. Absolute, or relative to CMSSW src directory")
+#options.register('sipmcells','Geometry/HGCalMapping/data/CellMaps/channels_sipmontile.hgcal.txt',mytype=VarParsing.varType.string,
+#                 info="Path to SiPM-on-tile cell mapper. Absolute, or relative to CMSSW src directory")
+#options.register('offsetfile','Geometry/HGCalMapping/data/CellMaps/calibration_to_surrounding_offsetMap.txt',mytype=VarParsing.varType.string,
+#                 info="Path to calibration-to-surrounding cell offset file. Absolute, or relative to CMSSW src directory")
+#options.parseArguments()
 
 process = cms.Process("HGC")
-
-# Message logger
-process.load("Geometry.HGCalMapping.hgcalmapping_cff")
-process.load('HGCalCommissioning.Configuration.ErasTB2025_cff')
-#process.load('Geometry.HGCalMapping.hgCalMappingESProducer_cfi')
-#process.load('Geometry.HGCalGeometry.HGCalGeometryESProducer_cfi')
 
 process.load("FWCore.MessageService.MessageLogger_cfi")
 process.load('Configuration.StandardSequences.Services_cff')
 process.load('Configuration.StandardSequences.MagneticField_cff')
 process.load('Configuration.EventContent.EventContent_cff')
 process.load("FWCore.MessageService.MessageLogger_cfi")
-#process.load("Configuration.StandardSequences.FrontierConditions_GlobalTag_cff")
-#process.load('SimGeneral.HepPDTESSource.pythiapdt_cfi')
-#process.load('Configuration.EventContent.EventContent_cff')
-#process.load('Configuration.StandardSequences.EndOfProcess_cff')
 
-#process.load('Configuration.Geometry.GeometryDD4hepExtended2026D99_cff')
-#process.load('Configuration.Geometry.GeometryDD4hepExtended2026D99Reco_cff')
-
-#process.load('Configuration.Geometry.GeometryExtended2026D99Reco_cff')
+process.load("Configuration.Geometry.GeometryExtendedRun4D104Reco_cff")
+process.load("Configuration.Geometry.GeometryExtendedRun4D104_cff")
 from Geometry.HGCalMapping.hgcalmapping_cff import customise_hgcalmapper
-#process = customise_hgcalmapper(process)
-#process.load('Configuration.Geometry.GeometryExtended2025Reco_cff')
+process = customise_hgcalmapper(process)
 
-#from Configuration.AlCa.GlobalTag import GlobalTag
-#process.GlobalTag = GlobalTag(process.GlobalTag, 'auto:phase2_realistic', '')
+#kwargs = { k: getattr(options,k) for k in ['modules','sicells','sipmcells','offsetfile'] if getattr(options,k)!='' }
+#process = customise_hgcalmapper(process, **kwargs)
+
+
 
 # Input file
 process.source = cms.Source("PoolSource",
@@ -46,20 +39,19 @@ process.source = cms.Source("PoolSource",
     )
 )
 
-#process.TFileService = cms.Service(
-#    "TFileService",
-#    fileName = cms.string("HGCalDigi_outCheck.root")
-#)
+process.TFileService = cms.Service(
+    "TFileService",
+    fileName = cms.string("HGCalDigi_ndigis_out_1000Evnts_Run110723_fixedadc.root")
+)
 
 process.maxEvents = cms.untracked.PSet(
-    input = cms.untracked.int32(1)
+    input = cms.untracked.int32(1000)
     
 
 )
 
 process.hits = cms.EDAnalyzer("hgcal_digiAnlzr",
-    #recHits = cms.InputTag("HGCalRecHit","HGCEERecHits")
-    #simHitsToken = cms.InputTag("g4SimHits", "HGCHitsEE")
+   
     hgcalDigis = cms.untracked.InputTag("hgcalDigis","","RAW2DQM"),
     #econds = cms.untracked.InputTag("hgcalDigis","","RAW2DQM")
     metaData = cms.InputTag("hgcalTrigTimeProducer","","RAW2DQM")
