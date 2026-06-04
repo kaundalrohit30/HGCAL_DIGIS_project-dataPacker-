@@ -211,22 +211,20 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
 
   const auto& digis = iEvent.getHandle(digisToken_);
   auto const& digis_view = digis->const_view();
-  const auto& econdInfo = iEvent.getHandle(econdInfoTkn_);
-  auto const& econdInfo_view = econdInfo->const_view();
+  //int32_t ndigis = digis->const_view().metadata().size();
 
   auto const& denseIndexInfo = iSetup.getData(denseIndexInfoTkn_);
   auto const& denseIndexInfo_view = denseIndexInfo.const_view();
   int32_t ndenseIndices = denseIndexInfo_view.metadata().size();
-  
-  const auto& digis = iEvent.getHandle(digisToken_);
-  auto const& digis_view = digis->const_view();
-  int32_t ndigis = digis->const_view().metadata().size();
+
+  const auto& econdInfo = iEvent.getHandle(econdInfoTkn_);
+  auto const& econdInfo_view = econdInfo->const_view();
+
 
   auto const& cellInfo = iSetup.getData(cellTkn_);
   auto const& cellInfo_view = cellInfo.const_view();
   auto const& moduleInfo = iSetup.getData(moduleTkn_);
   auto const& moduleInfo_view = moduleInfo.const_view();
-
 
   int32_t ndigis = 0;
   if(digis.isValid()){
