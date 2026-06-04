@@ -41,7 +41,7 @@ process.source = cms.Source("PoolSource",
 
 process.TFileService = cms.Service(
     "TFileService",
-    fileName = cms.string("HGCalDigi_ndigis_out_1000Evnts_Run110723_fixedadc.root")
+    fileName = cms.string("HGCalDigi_ndigis_out_1000Evnts_Run110723_fixedadc_nw.root")
 )
 
 process.maxEvents = cms.untracked.PSet(

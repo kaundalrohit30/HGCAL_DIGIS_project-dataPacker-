@@ -96,11 +96,13 @@ private:
   TTree* tree;
   int eventNum;
 
-  std::vector<uint16_t> tctp ,adc, adcm1 ,tot ,toa ,cm ,flags ,channel ,fedId ,fedReadoutSeq;
+  std::vector<uint16_t> tctp ,adc, adcm1 ,tot ,toa ,cm ,flags ,channel ,fedId ,fedReadoutSeq, payloadLength;
 
   std::vector<int> chI1  ,chI2  ,modI1  ,modI2  ,chType;
 
-  std::vector<uint8_t> isSiPM, iscalib;
+  std::vector<uint8_t> isSiPM, iscalib, BX, L1A, Orbit;
+
+  std::vector<unsigned int> cm0, cm1;
 
 
 //  edm::EDGetTokenT<TrackCollection> tracksToken_;  //used to select what tracks to read from configurationfile
@@ -155,6 +157,7 @@ hgcal_digiAnlzr::hgcal_digiAnlzr(const edm::ParameterSet& iConfig)
     tree->Branch("channel",&channel);
     tree->Branch("fedId",&fedId);
     tree->Branch("fedReadoutSeq",&fedReadoutSeq);
+    tree->Branch("payloadLength",&payloadLength);
 
     tree->Branch("chI1",&chI1);
     tree->Branch("chI2",&chI2);
@@ -163,7 +166,15 @@ hgcal_digiAnlzr::hgcal_digiAnlzr(const edm::ParameterSet& iConfig)
 
     tree->Branch("isSiPM",&isSiPM);
     tree->Branch("iscalib",&iscalib);
-  
+    tree->Branch("BX",&BX);
+    tree->Branch("L1A",&L1A);
+    tree->Branch("Orbit",&Orbit);
+
+    tree->Branch("cm0",&cm0);
+    tree->Branch("cm1",&cm1);
+
+
+
     }
 
 hgcal_digiAnlzr::~hgcal_digiAnlzr() {
@@ -201,6 +212,7 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
   channel.clear();
   fedId.clear();
   fedReadoutSeq.clear();
+  payloadLength.clear();
   chI1.clear();
   chI2.clear();
   modI1.clear();
@@ -208,6 +220,11 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
   chType.clear();
   isSiPM.clear();
   iscalib.clear();
+  BX.clear();
+  L1A.clear();
+  Orbit.clear();
+  cm0.clear();
+  cm1.clear();
 
   const auto& digis = iEvent.getHandle(digisToken_);
   auto const& digis_view = digis->const_view();
@@ -313,12 +330,18 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
   for(int imod=0; imod<necons; imod++){
     const auto econd = econdInfo_view[imod];
     payloads[imod] = econd.payloadLength();
+    payloadLength.push_back(econd.payloadLength());
+    BX.push_back(econd.BX());
+    L1A.push_back(econd.L1A());
+    Orbit.push_back(econd.Orbit());
     //cout << "Econ:>  " << imod << "   " << econd.payloadLength() <<  "   BX:>  " << econd.BX() << "   L1A:>  " << static_cast<unsigned int>(econd.L1A()) << "   Orbit:>  " << static_cast<unsigned int>(econd.Orbit()) << endl;
     //cout << typeid(econd.L1A()).name() << endl;
     //cout << typeid(econd.Orbit()).name() << endl;
     for(size_t ierx=0; ierx<12; ierx++){
       cmsums[ierx][imod] = econd.cm().coeff(ierx,0) + econd.cm().coeff(ierx,1);
       //cout << econd.cm().coeff(ierx,0) + econd.cm().coeff(ierx,1) << endl;
+      cm0.push_back(econd.cm().coeff(ierx,0));
+      cm1.push_back(econd.cm().coeff(ierx,1));
     }
 
   }
