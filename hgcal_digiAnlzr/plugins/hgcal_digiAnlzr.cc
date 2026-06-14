@@ -53,19 +53,80 @@
 #include "DataFormats/HGCalDigi/interface/HGCalECONDPacketInfoHost.h"
 #include "Geometry/HGCalMapping/interface/HGCalMappingTools.h"
 #include "FWCore/Utilities/interface/Exception.h"
+//Data packing
+#include "DataFormats/HGCalDigi/interface/HGCROCChannelDataFrame.h"
+#include "SimCalorimetry/HGCalSimAlgos/interface/HGCalRawDataPackingTools.h"
+//#include "​SimCalorimetry/​HGCalSimAlgos/​interface/​SlinkTypes.h"
+//#include "EventFilter/HGCalRawToDigi/interface/HGCalECONDEmulator.h"
+//#include "EventFilter/HGCalRawToDigi/interface/HGCalFrameGenerator.h"
+
+
 #include <iostream>
 
 #include "TTree.h"
 #include "FWCore/ServiceRegistry/interface/Service.h"
 #include "CommonTools/UtilAlgos/interface/TFileService.h"
 //
-// class declaration
-//
 
-// If the analyzer does not use TFileService, please remove
-// the template argument to the base class so the class inherits
-// from  edm::one::EDAnalyzer<>
-// This will improve performance in multithreaded jobs.
+/*struct ECONDHeader {
+  uint32_t word0;
+  uint32_t word1;
+};
+
+ECONDHeader makeECONDHeader(uint16_t payloadLength,
+                            uint16_t bx,
+                            uint16_t l1a,
+                            uint8_t orbit) {
+  ECONDHeader hdr{0, 0};
+
+  constexpr uint32_t HEADER_MARKER = 0x1FE;
+
+  // Word 0
+  hdr.word0 |= (HEADER_MARKER & 0x1FF) << 23;
+  hdr.word0 |= (payloadLength & 0x1FF) << 14;
+
+  // P,E,H/T,E/B/O,M,T,Hamming left as zero
+
+  // Word 1
+  hdr.word1 |= (bx & 0xFFF) << 20;
+  hdr.word1 |= (l1a & 0x3F) << 14;
+  hdr.word1 |= (orbit & 0x7) << 11;
+
+  // S and RR left as zero
+
+  return hdr;
+}
+
+struct eRxHeader {
+  uint32_t word0;
+  uint32_t word1;
+};
+
+eRxHeader makeERxHeader(const std::vector<uint8_t>& channelMap, uint16_t cm0, uint16_t cm1) {
+  eRxHeader hdr{0, 0};
+
+  hdr.word0 |= (cm0 & 0x3FF) << 15;
+  hdr.word0 |= (cm1 & 0x3FF) << 5;
+  // Channel map bits
+  for (size_t i = 0; i < channelMap.size(); i++) {
+    if (i<32) {
+      hdr.word1 |= (channelMap[i] & 0x1) << i;
+    }
+    else if(i>=32){
+      hdr.word0 |= (channelMap[i] & 0x1) << (i-32);
+    }
+  }
+
+  return hdr;
+}*/
+
+/*struct ERxData {
+     uint32_t cm0{0}, cm1{0};
+     std::vector<uint8_t> tctp;  // vector of hgcal::econd::ToTStatus
+     std::vector<uint16_t> adc, adcm, toa, tot;
+     std::vector<uint32_t> meta;  ///< additional words accompanying the e-rx data
+     uint32_t crc32{0};
+   };*/
 
 
 class hgcal_digiAnlzr : public edm::one::EDAnalyzer<edm::one::SharedResources> {
@@ -102,13 +163,9 @@ private:
 
   std::vector<uint8_t> isSiPM, iscalib, BX, L1A, Orbit;
 
-  std::vector<unsigned int> cm0, cm1;
+  std::vector<uint16_t> cm0, cm1;
 
-
-//  edm::EDGetTokenT<TrackCollection> tracksToken_;  //used to select what tracks to read from configurationfile
-//#ifdef THIS_IS_AN_EVENTSETUP_EXAMPLE
-  //edm::ESGetToken<SetupData, SetupRecord> setupToken_;
-//#endif
+  //std::vector<uint32_t> allDataWords;
 };
 
 //
@@ -177,12 +234,12 @@ hgcal_digiAnlzr::hgcal_digiAnlzr(const edm::ParameterSet& iConfig)
 
     }
 
-hgcal_digiAnlzr::~hgcal_digiAnlzr() {
+  hgcal_digiAnlzr::~hgcal_digiAnlzr() {
   // do anything here that needs to be done at desctruction time
   // (e.g. close files, deallocate resources etc.)
   //
   // please remove this method altogether if it would be left empty
-}
+  }
 
 //
 // member functions
@@ -225,6 +282,7 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
   Orbit.clear();
   cm0.clear();
   cm1.clear();
+  //allDataWords.clear();
 
   const auto& digis = iEvent.getHandle(digisToken_);
   auto const& digis_view = digis->const_view();
@@ -249,10 +307,9 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
   //assert(ndigis == ndenseIndices);
   
   }
-  
-  //if(eventNum == 1){
     cout << "EventNo.>  " << eventNum << endl;
     cout << "ndigis:> " << ndigis << "  ndenseIndices:> " << ndenseIndices << endl;
+
     /*cout << std::left
      << std::setw(10) << "tctp"
      << std::setw(10) << "adc"
@@ -272,29 +329,71 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
      << std::setw(10) << "isSiPM"
      << std::setw(10) << "iscalib"
      << '\n';*/
+
+  std::vector<hgcal::econd::ERxData> allERxData(72);
+  std::vector<hgcal::econd::ERxChannelEnable> enableMaps(
+    72,
+    hgcal::econd::ERxChannelEnable(37,false)
+  );
+  
+  using Digi = HGCROCChannelDataFrame<uint32_t>;
+
   for (int32_t i = 0; i < ndenseIndices && digis.isValid(); i++) {
       
-      //cout << digis_view.chNumber()[i] << endl;
-      tctp.push_back(digis_view.tctp()[i]);
-      adc.push_back(digis_view.adcm1()[i]);
-      adcm1.push_back(digis_view.adc()[i]);
-      tot.push_back(digis_view.tot()[i]);
-      toa.push_back(digis_view.toa()[i]);
-      cm.push_back(digis_view.cm()[i]);
-      flags.push_back(digis_view.flags()[i]);
-      channel.push_back(denseIndexInfo_view.chNumber()[i]);
-      fedId.push_back(denseIndexInfo_view.fedId()[i]);
-      fedReadoutSeq.push_back(denseIndexInfo_view.fedReadoutSeq()[i]);
-      uint32_t cellInfoIdx(denseIndexInfo_view.cellInfoIdx()[i]);
-      chType.push_back(cellInfo_view.t()[cellInfoIdx]);
-      chI1.push_back(cellInfo_view.i1()[cellInfoIdx]);
-      chI2.push_back(cellInfo_view.i2()[cellInfoIdx]);   
-      uint32_t modInfoIdx(denseIndexInfo_view.modInfoIdx()[i]);
-      modI1.push_back(moduleInfo_view.i1()[modInfoIdx]);
-      modI2.push_back(moduleInfo_view.i2()[modInfoIdx]); 
-      isSiPM.push_back((uint8_t) moduleInfo_view.isSiPM()[modInfoIdx]);
-      iscalib.push_back(cellInfo_view.iscalib()[cellInfoIdx]);
+    //cout << digis_view.chNumber()[i] << endl;
+    tctp.push_back(digis_view.tctp()[i]);
+    adc.push_back(digis_view.adc()[i]);
+    adcm1.push_back(digis_view.adcm1()[i]);
+    tot.push_back(digis_view.tot()[i]);
+    toa.push_back(digis_view.toa()[i]);
+    cm.push_back(digis_view.cm()[i]);
+    flags.push_back(digis_view.flags()[i]);
+    channel.push_back(denseIndexInfo_view.chNumber()[i]);
+    fedId.push_back(denseIndexInfo_view.fedId()[i]);
+    fedReadoutSeq.push_back(denseIndexInfo_view.fedReadoutSeq()[i]);
+    uint32_t cellInfoIdx(denseIndexInfo_view.cellInfoIdx()[i]);
+    chType.push_back(cellInfo_view.t()[cellInfoIdx]);
+    chI1.push_back(cellInfo_view.i1()[cellInfoIdx]);
+    chI2.push_back(cellInfo_view.i2()[cellInfoIdx]);   
+    uint32_t modInfoIdx(denseIndexInfo_view.modInfoIdx()[i]);
+    modI1.push_back(moduleInfo_view.i1()[modInfoIdx]);
+    modI2.push_back(moduleInfo_view.i2()[modInfoIdx]); 
+    isSiPM.push_back((uint8_t) moduleInfo_view.isSiPM()[modInfoIdx]);
+    iscalib.push_back(cellInfo_view.iscalib()[cellInfoIdx]);
      
+
+    int erx = i/37;
+    int chInERx = i%37;
+    //cout << "ERx: " << erx << ", Channel in ERx: " << chInERx << endl;
+
+    allERxData[erx].tctp.push_back(digis_view.tctp()[i]);
+    allERxData[erx].adc.push_back(digis_view.adc()[i]);
+    allERxData[erx].adcm.push_back(digis_view.adcm1()[i]);
+    allERxData[erx].toa.push_back(digis_view.toa()[i]);
+    allERxData[erx].tot.push_back(digis_view.tot()[i]);
+
+    enableMaps[erx][chInERx] = true;
+      /*bool tc = (digis_view.tctp()[i] >> 1) & 0x1;
+      bool tp = digis_view.tctp()[i] & 0x1;
+      
+
+      Digi digi;
+
+      digi.fill(
+          false,   
+          tc,
+          tp,   
+          digis_view.adcm1()[i],     
+          digis_view.adc()[i],     
+          digis_view.tot()[i],
+          digis_view.toa()[i]      
+      );
+
+      uint32_t word = digi.raw();*/
+      //cout << "Raw word:>  " << std::hex << word << std::dec << endl;
+      //allDataWords.push_back(word);
+      
+
     /*cout << std::left
      << std::setw(10) << static_cast<unsigned int>(digis_view.tctp()[i])
      << std::setw(10) << digis_view.adc()[i]
@@ -316,39 +415,135 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
      << '\n';*/
 
     }
-  
-    int32_t necons = 0;
+
+  int32_t necons = 0;
   if(econdInfo.isValid()){
-      necons = econdInfo->const_view().metadata().size();
-      //assert(ndigis == ndenseIndices);
+    necons = econdInfo->const_view().metadata().size();
+    //assert(ndigis == ndenseIndices);
   }
 
   //cout << "necons:>  " << necons << endl;
-  std::vector<uint16_t> payloads(necons);
-  std::vector<std::vector<uint32_t>> cmsums(12);
-  for(size_t ierx=0; ierx<12; ierx++) cmsums[ierx].resize(necons,0);
+  //std::vector<uint16_t> payloads(necons);
+  //std::vector<std::vector<uint32_t>> cmsums(12);
+  //for(size_t ierx=0; ierx<12; ierx++) cmsums[ierx].resize(necons,0);
   for(int imod=0; imod<necons; imod++){
     const auto econd = econdInfo_view[imod];
-    payloads[imod] = econd.payloadLength();
+    //payloads[imod] = econd.payloadLength();
     payloadLength.push_back(econd.payloadLength());
     BX.push_back(econd.BX());
     L1A.push_back(econd.L1A());
     Orbit.push_back(econd.Orbit());
-    //cout << "Econ:>  " << imod << "   " << econd.payloadLength() <<  "   BX:>  " << econd.BX() << "   L1A:>  " << static_cast<unsigned int>(econd.L1A()) << "   Orbit:>  " << static_cast<unsigned int>(econd.Orbit()) << endl;
-    //cout << typeid(econd.L1A()).name() << endl;
-    //cout << typeid(econd.Orbit()).name() << endl;
-    for(size_t ierx=0; ierx<12; ierx++){
-      cmsums[ierx][imod] = econd.cm().coeff(ierx,0) + econd.cm().coeff(ierx,1);
+    
+    /*auto hdr = makeECONDHeader(
+    econd.payloadLength(),
+    econd.BX(),
+    econd.L1A(),
+    econd.Orbit()
+    );
+
+    std::cout << std::hex
+          << "Header Word0 = 0x" << hdr.word0 << "\n"
+          << "Header Word1 = 0x" << hdr.word1 << "\n"
+          << std::dec;*/
+
+    for(size_t ierx=0; ierx<6; ierx++){
+      //cmsums[ierx][imod] = econd.cm().coeff(ierx,0) + econd.cm().coeff(ierx,1);
       //cout << econd.cm().coeff(ierx,0) + econd.cm().coeff(ierx,1) << endl;
       cm0.push_back(econd.cm().coeff(ierx,0));
       cm1.push_back(econd.cm().coeff(ierx,1));
+
+      //cout << "ierx: " << ierx << "  cm0: " << econd.cm().coeff(ierx,0) << "  cm1: " << econd.cm().coeff(ierx,1) << endl;
     }
 
   }
 
+
+  /////////////// eRx payload + header generation ///////////////
+
+  std::vector<uint32_t> all_eRxPayload{0};
+  
+  //for(int j = 0; j < 5; j++){
+  for(size_t erx = 0; erx < allERxData.size(); ++erx){  
+      const auto eRxheader = hgcal::econd::eRxSubPacketHeader(1, 1, false, cm0[erx], cm1[erx], enableMaps[erx]);  //eRx Header
+      //for(size_t j=0; j<eRxheader.size(); ++j)
+      //{
+        std::cout
+            << "ERx = " << erx
+            << "  Header1: "
+            << std::hex
+            << eRxheader[0]
+            << std::dec
+            << std::endl;
+        std::cout
+            << "ERx = " << erx
+            << "  Header2: "
+            << std::hex
+            << eRxheader[1]
+            << std::dec
+            << std::endl;    
+   // }
+      //cout << "ERx: " << erx << endl;
+      const auto erx_chan_data = hgcal::econd::produceERxData(enableMaps[erx], allERxData[erx], true, true, true, false);  //eRx data
+      ///int i = 0;
+      for(size_t ch = 0; ch < erx_chan_data.size(); ++ch){
+          std::cout
+            << "Ch=" << (ch)
+            << " Payload Word = "  
+            << std::hex << erx_chan_data[ch]
+            << std::dec
+            << " ADC = "  << allERxData[erx].adc[ch]
+            << " ADCm1 = " << allERxData[erx].adcm[ch]
+            << " TOA = "  << allERxData[erx].toa[ch]
+            << " TOT = "  << allERxData[erx].tot[ch]
+            << " TCTP = " << static_cast<unsigned int>(allERxData[erx].tctp[ch])
+            << std::endl;
+        
+        //i++;
+        
+      }
+      std::cout << std::endl;
+    }
+
+
+    /////////ooooooooooOOOOOOOOOO ECOND header + idle words + trailer generation ooooooooooOOOOOOOOOO//////// (Work in progress!!!!)
+
+    for(int i = 0; i < necons; i++){
+      const auto econdHeader = hgcal::econd::eventPacketHeader(170,
+                                                                payloadLength[i],
+                                                                false,
+                                                                true,
+                                                                0,
+                                                                0,
+                                                                true,
+                                                                false,
+                                                                0,
+                                                                BX[i],
+                                                                L1A[i],
+                                                                Orbit[i],
+                                                                false,
+                                                                0);
+
+        //cout << "ECOND" << i << " Header Word0:  " << std::hex << econdHeader[0] << "  Header Word1:  " << econdHeader[1] << std::dec << endl;
+    }
+
+
   //}
 
   tree->Fill();
+
+
+  /*std::vector<std::vector<uint32_t>> erxPayloads(72);
+
+  for(int erx = 0; erx < 72; ++erx)
+  {
+      int start = erx * 37;
+
+      erxPayloads[erx].assign(
+          allDataWords.begin() + start,
+          allDataWords.begin() + start + 37
+      );
+  }*/
+
 
 }
 
