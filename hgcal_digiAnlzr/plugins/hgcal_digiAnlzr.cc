@@ -157,11 +157,11 @@ private:
   TTree* tree;
   int eventNum;
 
-  std::vector<uint16_t> tctp ,adc, adcm1 ,tot ,toa ,cm ,flags ,channel ,fedId ,fedReadoutSeq, payloadLength;
+  std::vector<uint16_t> tctp ,adc, adcm1 ,tot ,toa ,cm ,flags ,channel ,fedId ,fedReadoutSeq, payloadLength, BX, L1A;
 
   std::vector<int> chI1  ,chI2  ,modI1  ,modI2  ,chType;
 
-  std::vector<uint8_t> isSiPM, iscalib, BX, L1A, Orbit;
+  std::vector<uint8_t> isSiPM, iscalib, Orbit;
 
   std::vector<uint16_t> cm0, cm1;
 
@@ -422,10 +422,6 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
     //assert(ndigis == ndenseIndices);
   }
 
-  //cout << "necons:>  " << necons << endl;
-  //std::vector<uint16_t> payloads(necons);
-  //std::vector<std::vector<uint32_t>> cmsums(12);
-  //for(size_t ierx=0; ierx<12; ierx++) cmsums[ierx].resize(necons,0);
   for(int imod=0; imod<necons; imod++){
     const auto econd = econdInfo_view[imod];
     //payloads[imod] = econd.payloadLength();
@@ -433,6 +429,8 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
     BX.push_back(econd.BX());
     L1A.push_back(econd.L1A());
     Orbit.push_back(econd.Orbit());
+
+    //cout << "nEcond = " << imod <<  "  BX = " << econd.BX() << "  L1A = " << static_cast<unsigned int>(econd.L1A()) << "  Orbit = " << static_cast<unsigned int>(econd.Orbit()) << endl;
     
     /*auto hdr = makeECONDHeader(
     econd.payloadLength(),
@@ -456,80 +454,130 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
     }
 
   }
-
+  tree->Fill();
 
   /////////////// eRx payload + header generation ///////////////
 
-  std::vector<uint32_t> all_eRxPayload{0};
-  
+  std::vector<uint32_t> econdPacket{0}; // for now only with Econd header + eRx header + payload (without ECOND trailer and Idle word)
+  econdPacket.clear();
+  int econdCounter = 0;
+  uint16_t header =  170;
+  uint8_t ht = 0;
+  uint8_t ebo = 0;
+  uint8_t ehHam = 0;
+  uint8_t rr = 0;
   //for(int j = 0; j < 5; j++){
-  for(size_t erx = 0; erx < allERxData.size(); ++erx){  
-      const auto eRxheader = hgcal::econd::eRxSubPacketHeader(1, 1, false, cm0[erx], cm1[erx], enableMaps[erx]);  //eRx Header
-      //for(size_t j=0; j<eRxheader.size(); ++j)
-      //{
-        std::cout
-            << "ERx = " << erx
-            << "  Header1: "
-            << std::hex
-            << eRxheader[0]
-            << std::dec
-            << std::endl;
-        std::cout
-            << "ERx = " << erx
-            << "  Header2: "
-            << std::hex
-            << eRxheader[1]
-            << std::dec
-            << std::endl;    
-   // }
-      //cout << "ERx: " << erx << endl;
-      const auto erx_chan_data = hgcal::econd::produceERxData(enableMaps[erx], allERxData[erx], true, true, true, false);  //eRx data
-      ///int i = 0;
-      for(size_t ch = 0; ch < erx_chan_data.size(); ++ch){
-          std::cout
-            << "Ch=" << (ch)
-            << " Payload Word = "  
-            << std::hex << erx_chan_data[ch]
-            << std::dec
-            << " ADC = "  << allERxData[erx].adc[ch]
-            << " ADCm1 = " << allERxData[erx].adcm[ch]
-            << " TOA = "  << allERxData[erx].toa[ch]
-            << " TOT = "  << allERxData[erx].tot[ch]
-            << " TCTP = " << static_cast<unsigned int>(allERxData[erx].tctp[ch])
-            << std::endl;
-        
-        //i++;
-        
-      }
-      std::cout << std::endl;
+  for(size_t erx = 0; erx < allERxData.size(); ++erx){   //looping over all 72 eRx
+
+    if(erx % 6 == 0){  //Each ECOND have 6 eRX input (LD modules)
+      const auto econdHeader = hgcal::econd::eventPacketHeader(header,
+                                                              payloadLength[econdCounter]-1, // since we are not have trailer in the econdpacket so the payload length is reduced by 1 (ideally it should be (37+2)*6 + 1 = 235)
+                                                              false,
+                                                              true,
+                                                              ht,
+                                                              ebo,
+                                                              true,
+                                                              false,
+                                                              ehHam,
+                                                              BX[econdCounter],
+                                                              L1A[econdCounter],
+                                                              Orbit[econdCounter],
+                                                              false,
+                                                              rr);
+      econdPacket.push_back(econdHeader[0]);  //filling EcondHeaders
+      econdPacket.push_back(econdHeader[1]);
+      econdCounter++;
     }
 
 
-    /////////ooooooooooOOOOOOOOOO ECOND header + idle words + trailer generation ooooooooooOOOOOOOOOO//////// (Work in progress!!!!)
 
+    const auto eRxheader = hgcal::econd::eRxSubPacketHeader(1, 1, false, cm0[erx], cm1[erx], enableMaps[erx]);  //eRx Header for each eRX
+    econdPacket.push_back(eRxheader[0]);     //filling ERxHeaders 
+    econdPacket.push_back(eRxheader[1]);
+    //for(size_t j=0; j<eRxheader.size(); ++j)
+    //{
+     /*std::cout  
+          << "ERx = " << erx
+          << "  Header1: "
+          << std::hex
+          << eRxheader[0]
+          << std::dec
+          << "  cm0 = " << cm0[erx]
+          << "  cm1 = " << cm1[erx]
+          << std::endl;
+      std::cout
+          << "ERx = " << erx
+          << "  Header2: "
+          << std::hex
+          << eRxheader[1]
+          << std::dec
+          << std::endl;    
+      std::cout << std::endl;*/
+   // }
+    //cout << "ERx: " << erx << endl;
+    const auto erx_chan_data = hgcal::econd::produceERxData(enableMaps[erx], allERxData[erx], true, true, true, false);  //eRx data for each eRX
+    ///int i = 0;
+    for(size_t ch = 0; ch < erx_chan_data.size(); ++ch){
+      econdPacket.push_back(erx_chan_data[ch]);   //filling eRx payload(channel data)
+        /*std::cout
+          << "Ch = " << (ch)
+          << "   Payload Word = "  
+          << std::hex << erx_chan_data[ch]
+          << std::dec
+          << "   ADC = "  << allERxData[erx].adc[ch]
+          << "   ADCm1 = " << allERxData[erx].adcm[ch]
+          << "   TOA = "  << allERxData[erx].toa[ch]
+          << "   TOT = "  << allERxData[erx].tot[ch]
+          << "   TCTP = " << static_cast<unsigned int>(allERxData[erx].tctp[ch])
+          << std::endl;*/
+      
+      //i++;
+      
+    }
+    //std::cout << std::endl;
+  }
+
+  /*int counter = 0;
+  for(size_t i = 0; i < econdPacket.size()/2; i++){
+    if(i%236 == 0){
+      cout <<  endl;
+      cout << "Econd " << counter << endl;//"   " <<  i << "  " << i%234 << endl;
+      counter++;
+    }  
+    cout << "idx: " << i << "  Word = " << std::hex << econdPacket[i] << std::dec << endl;
+  }*/
+
+
+    /////////ooooooooooOOOOOOOOOO ECOND header + idle words + trailer generation ooooooooooOOOOOOOOOO//////// (Work in progress!!!!)
+    /*uint16_t header =  170;
+    uint8_t ht = 0;
+    uint8_t ebo = 0;
+    uint8_t ehHam = 0;
+    uint8_t rr = 0;
     for(int i = 0; i < necons; i++){
-      const auto econdHeader = hgcal::econd::eventPacketHeader(170,
+      const auto econdHeader = hgcal::econd::eventPacketHeader(header,
                                                                 payloadLength[i],
                                                                 false,
                                                                 true,
-                                                                0,
-                                                                0,
+                                                                ht,
+                                                                ebo,
                                                                 true,
                                                                 false,
-                                                                0,
+                                                                ehHam,
                                                                 BX[i],
                                                                 L1A[i],
                                                                 Orbit[i],
                                                                 false,
-                                                                0);
+                                                                rr);
 
-        //cout << "ECOND" << i << " Header Word0:  " << std::hex << econdHeader[0] << "  Header Word1:  " << econdHeader[1] << std::dec << endl;
+        cout << "ECOND" << i << std::setw(10) << "   Header Word0:  " << std::hex << econdHeader[0] << "  Header Word1:  " << econdHeader[1] << std::dec << 
+        "   Payload Length: " << payloadLength[i]  << "   BX: " << BX[i] << "     L1A: " << L1A[i] << "     Orbit: " << static_cast<unsigned int>(Orbit[i]) << endl;
     }
-
+    */
 
   //}
 
-  tree->Fill();
+  
 
 
   /*std::vector<std::vector<uint32_t>> erxPayloads(72);
