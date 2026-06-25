@@ -51,11 +51,14 @@
 #include "CondFormats/HGCalObjects/interface/HGCalMappingParameterHost.h"
 #include "DataFormats/HGCalDigi/interface/HGCalECONDPacketInfoSoA.h"
 #include "DataFormats/HGCalDigi/interface/HGCalECONDPacketInfoHost.h"
+#include "DataFormats/HGCalDigi/interface/HGCalFEDPacketInfoSoA.h"
+#include "DataFormats/HGCalDigi/interface/HGCalFEDPacketInfoHost.h"
 #include "Geometry/HGCalMapping/interface/HGCalMappingTools.h"
 #include "FWCore/Utilities/interface/Exception.h"
 //Data packing
 #include "DataFormats/HGCalDigi/interface/HGCROCChannelDataFrame.h"
 #include "SimCalorimetry/HGCalSimAlgos/interface/HGCalRawDataPackingTools.h"
+#include "DataFormats/HGCalDigi/interface/HGCalRawDataDefinitions.h"
 //#include "​SimCalorimetry/​HGCalSimAlgos/​interface/​SlinkTypes.h"
 //#include "EventFilter/HGCalRawToDigi/interface/HGCalECONDEmulator.h"
 //#include "EventFilter/HGCalRawToDigi/interface/HGCalFrameGenerator.h"
@@ -68,65 +71,26 @@
 #include "CommonTools/UtilAlgos/interface/TFileService.h"
 //
 
-/*struct ECONDHeader {
-  uint32_t word0;
-  uint32_t word1;
-};
+/////////// CRC Calculation ////////////////////////////////////
 
-ECONDHeader makeECONDHeader(uint16_t payloadLength,
-                            uint16_t bx,
-                            uint16_t l1a,
-                            uint8_t orbit) {
-  ECONDHeader hdr{0, 0};
+std::uint32_t econd_crc32(const std::uint8_t* data, std::size_t length)
+{
+    constexpr std::uint32_t poly = hgcal::ECOND_FRAME::CRC_POL;
+    std::uint32_t crc = hgcal::ECOND_FRAME::CRC_INITREM;
+    for(std::size_t i = 0; i < length; ++i) {
+        crc ^= static_cast<std::uint32_t>(data[i]) << 24;
+        for(int bit = 0; bit < 8; ++bit) {
+            if(crc & 0x80000000u)
+                crc = (crc << 1) ^ poly;
+            else
+                crc <<= 1;
+        }
+    }
 
-  constexpr uint32_t HEADER_MARKER = 0x1FE;
-
-  // Word 0
-  hdr.word0 |= (HEADER_MARKER & 0x1FF) << 23;
-  hdr.word0 |= (payloadLength & 0x1FF) << 14;
-
-  // P,E,H/T,E/B/O,M,T,Hamming left as zero
-
-  // Word 1
-  hdr.word1 |= (bx & 0xFFF) << 20;
-  hdr.word1 |= (l1a & 0x3F) << 14;
-  hdr.word1 |= (orbit & 0x7) << 11;
-
-  // S and RR left as zero
-
-  return hdr;
+    return crc;
 }
 
-struct eRxHeader {
-  uint32_t word0;
-  uint32_t word1;
-};
 
-eRxHeader makeERxHeader(const std::vector<uint8_t>& channelMap, uint16_t cm0, uint16_t cm1) {
-  eRxHeader hdr{0, 0};
-
-  hdr.word0 |= (cm0 & 0x3FF) << 15;
-  hdr.word0 |= (cm1 & 0x3FF) << 5;
-  // Channel map bits
-  for (size_t i = 0; i < channelMap.size(); i++) {
-    if (i<32) {
-      hdr.word1 |= (channelMap[i] & 0x1) << i;
-    }
-    else if(i>=32){
-      hdr.word0 |= (channelMap[i] & 0x1) << (i-32);
-    }
-  }
-
-  return hdr;
-}*/
-
-/*struct ERxData {
-     uint32_t cm0{0}, cm1{0};
-     std::vector<uint8_t> tctp;  // vector of hgcal::econd::ToTStatus
-     std::vector<uint16_t> adc, adcm, toa, tot;
-     std::vector<uint32_t> meta;  ///< additional words accompanying the e-rx data
-     uint32_t crc32{0};
-   };*/
 
 
 class hgcal_digiAnlzr : public edm::one::EDAnalyzer<edm::one::SharedResources> {
@@ -144,6 +108,7 @@ private:
   // ----------member data ---------------------------
   edm::EDGetTokenT<hgcaldigi::HGCalDigiHost> digisToken_;
   edm::EDGetTokenT<hgcaldigi::HGCalECONDPacketInfoHost> econdInfoTkn_;
+  edm::EDGetTokenT<hgcaldigi::HGCalFEDPacketInfoHost> fedInfoTkn_;
   edm::EDGetTokenT<HGCalTestSystemTrigTimeCollection> trigtimeToken_;
   edm::EDGetTokenT<HGCalTestSystemMCP> mcpToken_;
   edm::EDGetTokenT<HGCalTestSystemTimingIn> timeinToken_;
@@ -152,18 +117,24 @@ private:
   edm::ESGetToken<hgcal::HGCalMappingCellParamHost, HGCalElectronicsMappingRcd> cellTkn_;
   edm::ESGetToken<hgcal::HGCalMappingModuleParamHost, HGCalElectronicsMappingRcd> moduleTkn_;
 
-  
+  //edm::ESGetToken<hgcal::HGCalMappingModuleParamDeviceCollection, HGCalMappingModuleIndexerRcd> moduleTkn_;
+
+
   //std::vector<uint16_t>  tctp, adc, adcm1, tot, toa, cm, flags, channel, fedId, fedReadoutSeq;
   TTree* tree;
   int eventNum;
 
-  std::vector<uint16_t> tctp ,adc, adcm1 ,tot ,toa ,cm ,flags ,channel ,fedId ,fedReadoutSeq, payloadLength, BX, L1A;
+  std::vector<uint16_t> tctp ,adc, adcm1 ,tot ,toa ,cm ,flags ,channel ,fedId ,fedReadoutSeq, payloadLength, BX, L1A, fedBX;
 
   std::vector<int> chI1  ,chI2  ,modI1  ,modI2  ,chType;
 
   std::vector<uint8_t> isSiPM, iscalib, Orbit;
 
-  std::vector<uint16_t> cm0, cm1;
+  std::vector<uint16_t> cm0, cm1;//, econd_status;
+
+  std::vector<uint32_t> cbBX, cbOrbit, fedObt;
+
+  std::vector<uint64_t> fedL1A;
 
   //std::vector<uint32_t> allDataWords;
 };
@@ -182,6 +153,7 @@ private:
 hgcal_digiAnlzr::hgcal_digiAnlzr(const edm::ParameterSet& iConfig)
     : digisToken_(consumes<hgcaldigi::HGCalDigiHost>(iConfig.getUntrackedParameter<edm::InputTag>("hgcalDigis"))),
     econdInfoTkn_(consumes<hgcaldigi::HGCalECONDPacketInfoHost>(iConfig.getUntrackedParameter<edm::InputTag>("hgcalDigis"))),
+    fedInfoTkn_(consumes<hgcaldigi::HGCalFEDPacketInfoHost>(iConfig.getUntrackedParameter<edm::InputTag>("hgcalDigis"))),
     trigtimeToken_(consumes<HGCalTestSystemTrigTimeCollection>(iConfig.getParameter<edm::InputTag>("metaData"))),
     mcpToken_(consumes<HGCalTestSystemMCP>(iConfig.getParameter<edm::InputTag>("metaData"))),
     timeinToken_(consumes<HGCalTestSystemTimingIn>(iConfig.getParameter<edm::InputTag>("metaData"))),
@@ -282,6 +254,12 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
   Orbit.clear();
   cm0.clear();
   cm1.clear();
+  cbBX.clear();
+  cbOrbit.clear();
+  fedBX.clear();
+  fedL1A.clear();
+  fedObt.clear();
+  //econd_status.clear();
   //allDataWords.clear();
 
   const auto& digis = iEvent.getHandle(digisToken_);
@@ -295,6 +273,8 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
   const auto& econdInfo = iEvent.getHandle(econdInfoTkn_);
   auto const& econdInfo_view = econdInfo->const_view();
 
+  const auto& fedInfo = iEvent.getHandle(fedInfoTkn_);
+  auto const& fedInfo_view = fedInfo->const_view();
 
   auto const& cellInfo = iSetup.getData(cellTkn_);
   auto const& cellInfo_view = cellInfo.const_view();
@@ -307,8 +287,8 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
   //assert(ndigis == ndenseIndices);
   
   }
-    cout << "EventNo.>  " << eventNum << endl;
-    cout << "ndigis:> " << ndigis << "  ndenseIndices:> " << ndenseIndices << endl;
+    cout << "EventNo:  " << eventNum << endl;
+    cout << "ndigis: " << ndigis << "  ndenseIndices: " << ndenseIndices << endl;
 
     /*cout << std::left
      << std::setw(10) << "tctp"
@@ -335,8 +315,14 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
     72,
     hgcal::econd::ERxChannelEnable(37,false)
   );
+
+  const std::vector<uint8_t> econd_status(12, hgcal::backend::ECONDPacketStatus::Normal);
+  //for(size_t i = 0; i < 12; i++){
+  //  cout << "Econd status: " << econd_status.size() << endl;
+  //  cout << std::hex << static_cast<unsigned int>(econd_status[i]) << std::dec << endl;
+  //}
   
-  using Digi = HGCROCChannelDataFrame<uint32_t>;
+  //using Digi = HGCROCChannelDataFrame<uint32_t>;
 
   for (int32_t i = 0; i < ndenseIndices && digis.isValid(); i++) {
       
@@ -361,6 +347,7 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
     isSiPM.push_back((uint8_t) moduleInfo_view.isSiPM()[modInfoIdx]);
     iscalib.push_back(cellInfo_view.iscalib()[cellInfoIdx]);
      
+    //cout << "cbidx: " << moduleInfo_view.captureblockidx()[modInfoIdx] << "  econdidx: " << moduleInfo_view.econdidx()[modInfoIdx] << endl;
 
     int erx = i/37;
     int chInERx = i%37;
@@ -429,6 +416,12 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
     BX.push_back(econd.BX());
     L1A.push_back(econd.L1A());
     Orbit.push_back(econd.Orbit());
+    if(imod == 0){
+      cbBX.push_back(econd.CBBX());
+      cbOrbit.push_back(econd.CBOrbit());
+    }
+    //econd_status.push_back(econd.cbFlag());
+
 
     //cout << "nEcond = " << imod <<  "  BX = " << econd.BX() << "  L1A = " << static_cast<unsigned int>(econd.L1A()) << "  Orbit = " << static_cast<unsigned int>(econd.Orbit()) << endl;
     
@@ -455,6 +448,29 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
 
   }
   tree->Fill();
+
+  ///////////oooooooooooOOOOOOOOOOOOO FED Info OOOOOOOOOOOOOOOoooooooooooooooooo////////////////////
+  int32_t nfed = 0;
+  if(fedInfo.isValid()){
+    nfed = fedInfo->const_view().metadata().size();
+    //assert(ndigis == ndenseIndices);
+  }
+
+  //cout << "nfed: " << nfed << endl;
+  for(int i = 0; i < nfed && fedInfo.isValid(); i++){
+    const auto fed = fedInfo_view[i];
+    if(fed.FEDPayload() != 0){
+      fedBX.push_back(fed.FEDBX());
+      fedL1A.push_back(fed.FEDL1A());
+      fedObt.push_back(fed.FEDOrbit());
+      //cout << "FED Payload: " << fed.FEDPayload() << "  FED BX: " << fed.FEDBX() << "  FED L1A: " << fed.FEDL1A() << "  FED Orbit: " << fed.FEDOrbit() << endl;
+    }
+  }
+
+
+
+
+
 
   /////////////// eRx payload + header generation ///////////////
 
@@ -523,7 +539,7 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
           << "Ch = " << (ch)
           << "   Payload Word = "  
           << std::hex << erx_chan_data[ch]
-          << std::dec
+          << std::dec << std::endl;
           << "   ADC = "  << allERxData[erx].adc[ch]
           << "   ADCm1 = " << allERxData[erx].adcm[ch]
           << "   TOA = "  << allERxData[erx].toa[ch]
@@ -538,13 +554,13 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
   }
 
   /*int counter = 0;
-  for(size_t i = 0; i < econdPacket.size()/2; i++){
+  for(size_t i = 0; i < econdPacket.size(); i++){
     if(i%236 == 0){
       cout <<  endl;
       cout << "Econd " << counter << endl;//"   " <<  i << "  " << i%234 << endl;
       counter++;
     }  
-    cout << "idx: " << i << "  Word = " << std::hex << econdPacket[i] << std::dec << endl;
+    cout << "idx: " << i%236 << "  Word = " << std::hex << econdPacket[i] << std::dec << endl;
   }*/
 
 
@@ -592,6 +608,85 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
       );
   }*/
 
+  //uint32_t bx = BX[0];
+  //uint32_t obt = Orbit[0];
+  for (unsigned icb = 0; icb < 6; ++icb) {
+
+  std::vector<uint8_t> econd_status(12, hgcal::backend::ECONDPacketStatus::InactiveECOND);
+
+  econd_status[2 * icb]     = hgcal::backend::ECONDPacketStatus::Normal;
+  econd_status[2 * icb + 1] = hgcal::backend::ECONDPacketStatus::Normal;
+
+  uint32_t evt = eventNum;
+
+  const auto cbHeader =
+      hgcal::backend::buildCaptureBlockHeader(
+          cbBX[evt-1],
+          evt,
+          cbOrbit[evt-1],
+          econd_status);
+
+  //cout << "cbIdx: " << icb << "  cbHeader0: " << std::hex << cbHeader[0] << "   cbHeader1: " << cbHeader[1] << std::dec << "  cbBX: " << cbBX[0] << 
+  //"  event: " << evt << "  cbOrbit: " << cbOrbit[0] << endl;
+
+  //cout << "cbHeader0: " << std::hex << cbHeader[0]
+  //     << "  " << std::bitset<32>(cbHeader[0]) << ",  cbHeader1: " << cbHeader[1]
+  //     << "  " << std::bitset<32>(cbHeader[1]) << std::dec << "  cbBX: " << cbBX[0] << 
+  //    "  event: " << evt << "  cbOrbit: " << cbOrbit[0] <<  endl;
+
+}
+
+
+/////////////oooooooooooOOOOOOOOOOOO SLink Header OOOOOOOOOOOOOOOOoooooooooooooooo////////////////
+
+uint8_t boe = 85;
+uint8_t eoe = 170;
+uint8_t v = 3;
+uint8_t l1a_subtype = 0;
+uint16_t l1a_fragment_cnt = 0;
+uint64_t global_event_id = eventNum;
+uint32_t event_length = 713;
+uint16_t daqcrc = 0;
+uint16_t crc = 0;
+uint32_t fed_id = 1601;
+const auto content_id = hgcal::backend::buildSlinkContentId(hgcal::backend::Subsystem, l1a_subtype, l1a_fragment_cnt);
+const auto status = hgcal::backend::buildSlinkRocketStatus(false, false, false, false, false);
+
+const auto slinkHeader = hgcal::backend::buildSlinkHeader(boe, v, global_event_id, content_id, fed_id);
+
+/*cout << "slHeader0: 0x" << std::hex << slinkHeader[0]
+     << "  " << std::bitset<32>(slinkHeader[0]) << endl;
+
+cout << "slHeader1: 0x" << std::hex << slinkHeader[1]
+     << "  " << std::bitset<32>(slinkHeader[1]) << endl;
+
+cout << "slHeader2: 0x" << std::hex << slinkHeader[2]
+     << "  " << std::bitset<32>(slinkHeader[2]) << endl;
+
+cout << "slHeader3: 0x" << std::hex << slinkHeader[3]
+     << "  " << std::bitset<32>(slinkHeader[3]) << endl;
+
+cout << std::dec; */
+
+  const auto slinkTrailer = hgcal::backend::buildSlinkTrailer(eoe, daqcrc, event_length, fedBX[global_event_id-1], fedObt[global_event_id-1], crc, status);
+
+  /*cout << "Event length: " << event_length << "  FED BX: " << fedBX[global_event_id-1] << "  FED Obt: " << fedObt[global_event_id-1] << endl;
+
+  cout << "slTrailer0: 0x" << std::hex << slinkTrailer[0]
+       << "  " << std::bitset<32>(slinkTrailer[0]) << endl;
+
+  cout << "slTrailer1: 0x" << std::hex << slinkTrailer[1]
+       << "  " << std::bitset<32>(slinkTrailer[1]) << endl;
+
+  cout << "slTrailer2: 0x" << std::hex << slinkTrailer[2]
+       << "  " << std::bitset<32>(slinkTrailer[2]) << endl;
+
+  cout << "slTrailer3: 0x" << std::hex << slinkTrailer[3]
+       << "  " << std::bitset<32>(slinkTrailer[3]) << endl;
+
+  cout << std::dec; */
+
+  
 
 }
 
