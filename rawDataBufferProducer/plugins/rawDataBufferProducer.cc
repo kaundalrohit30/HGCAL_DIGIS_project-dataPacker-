@@ -436,7 +436,7 @@ void rawDataBufferProducer::produce(edm::Event& iEvent, const edm::EventSetup& i
   std::vector<uint32_t> econdPacket{0}; // for now only with Econd header + eRx header + payload (without ECOND trailer and Idle word)
   econdPacket.clear();
   int econdCounter = 0;
-  uint16_t header =  340;//170;
+  uint16_t header =  170;
   uint8_t ht = 0;
   uint8_t ebo = 0;
   uint8_t ehHam = 0;
@@ -543,6 +543,7 @@ void rawDataBufferProducer::produce(edm::Event& iEvent, const edm::EventSetup& i
   );
   CRC.push_back(crc);
   //cout << std::hex << crc << std::dec << endl;
+  payloadCounter += payloadLength;
       
     }
 
@@ -657,8 +658,9 @@ uint16_t daqcrc = 0;
 constexpr size_t hdrsize = sizeof(SLinkRocketHeader_v3);
 constexpr size_t trsize  = sizeof(SLinkRocketTrailer_v3);
 
-//std::vector<unsigned char> slinkPacket(totalSize);
+
 unsigned char slinkPacket[totalSize];
+std::memset(slinkPacket, 0, totalSize);
 
 //auto sh0 = new ((void*)slinkPacket.data()) SLinkRocketHeader_v3(sid, l1a_types, l1a_phys, emu_status, global_event_id);  
 auto sh0 = new ((void*)slinkPacket) SLinkRocketHeader_v3(sid, l1a_types, l1a_phys, emu_status, global_event_id);  
@@ -680,10 +682,10 @@ auto st0 = new ((void*)(slinkPacket+hdrsize+payloadBytes))
 
 
 
-/*const uint32_t* words =
-    reinterpret_cast<const uint32_t*>(slinkPacket.data());
+const uint32_t* words =
+    reinterpret_cast<const uint32_t*>(slinkPacket);
 
-for (size_t i = 0; i < totalSize/4; ++i) {
+/*for (size_t i = 0; i < totalSize/4; ++i) {
     std::cout << "Word " << i << " = 0x"
               << std::hex << std::setw(8) << std::setfill('0')
               << words[i] << std::dec << '\n';
@@ -694,7 +696,7 @@ auto rawDataBuffer = std::make_unique<RawDataBuffer>(totalSize);
 rawDataBuffer->addSource(sid, slinkPacket, totalSize);
 
 auto const& fragData0 = rawDataBuffer->fragmentData(sid);
-cout << "fragment size = " << fragData0.size() << endl;
+//cout << "fragment size = " << fragData0.size() << endl;
 assert(fragData0.size());
 auto hdrView0 = makeSLinkRocketHeaderView(fragData0.dataHeader(hdrsize));
 auto trlView0 = makeSLinkRocketTrailerView(fragData0.dataTrailer(trsize), hdrView0->version());
