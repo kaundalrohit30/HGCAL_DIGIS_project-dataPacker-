@@ -1,9 +1,9 @@
 // -*- C++ -*-
 //
-// Package:    DigiAnalyzer/hgcal_digiAnlzr
-// Class:      hgcal_digiAnlzr
+// Package:    RawDataBufferProducer/rawDataBufferProducer
+// Class:      rawDataBufferProducer
 //
-/**\class hgcal_digiAnlzr hgcal_digiAnlzr.cc DigiAnalyzer/hgcal_digiAnlzr/plugins/hgcal_digiAnlzr.cc
+/**\class rawDataBufferProducer rawDataBufferProducer.cc RawDataBufferProducer/rawDataBufferProducer/plugins/rawDataBufferProducer.cc
 
  Description: [one line class summary]
 
@@ -12,33 +12,27 @@
 */
 //
 // Original Author:  Rohit Kaundal
-//         Created:  Thu, 28 May 2026 13:36:46 GMT
+//         Created:  Mon, 29 Jun 2026 05:40:32 GMT
 //
 //
 
 // system include files
 #include <memory>
-#include <iostream>
-#include <sstream>
-#include <string>
-
 
 // user include files
 #include "FWCore/Framework/interface/Frameworkfwd.h"
-#include "FWCore/Framework/interface/one/EDAnalyzer.h"
+#include "FWCore/Framework/interface/stream/EDProducer.h"
 
 #include "FWCore/Framework/interface/Event.h"
 #include "FWCore/Framework/interface/MakerMacros.h"
 
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
 #include "FWCore/Utilities/interface/StreamID.h"
+
 #include "FWCore/Utilities/interface/ESGetToken.h"
 
 #include "CommonTools/Utils/interface/StringCutObjectSelector.h"
 
-//#include "DataFormats/NanoAOD/interface/FlatTable.h"
-
-//Meta data (trigger, ...)
 #include "HGCalCommissioning/SystemTestEventFilters/interface/HGCalTestSystemMetaData.h"
 //DetId
 #include "DataFormats/ForwardDetId/interface/HGCalDetId.h"
@@ -60,17 +54,17 @@
 #include "SimCalorimetry/HGCalSimAlgos/interface/HGCalRawDataPackingTools.h"
 #include "DataFormats/HGCalDigi/interface/HGCalRawDataDefinitions.h"
 #include "DataFormats/FEDRawData/interface/SLinkRocketHeaders.h"
-//#include "​SimCalorimetry/​HGCalSimAlgos/​interface/​SlinkTypes.h"
-//#include "EventFilter/HGCalRawToDigi/interface/HGCalECONDEmulator.h"
-//#include "EventFilter/HGCalRawToDigi/interface/HGCalFrameGenerator.h"
 
+#include "DataFormats/FEDRawData/interface/RawDataBuffer.h"
+#include "FWCore/Utilities/interface/EDPutToken.h"
 
 #include <iostream>
 
 #include "TTree.h"
 #include "FWCore/ServiceRegistry/interface/Service.h"
 #include "CommonTools/UtilAlgos/interface/TFileService.h"
-//
+
+
 
 /////////// CRC Calculation ////////////////////////////////////
 
@@ -93,37 +87,42 @@ std::uint32_t econd_crc32(const std::uint8_t* data, std::size_t length)
 }
 
 
+//
+// class declaration
+//
 
-
-class hgcal_digiAnlzr : public edm::one::EDAnalyzer<edm::one::SharedResources> {
+class rawDataBufferProducer : public edm::stream::EDProducer<> {
 public:
-  explicit hgcal_digiAnlzr(const edm::ParameterSet&);
-  ~hgcal_digiAnlzr() override;
+  explicit rawDataBufferProducer(const edm::ParameterSet&);
+  ~rawDataBufferProducer() override;
 
   static void fillDescriptions(edm::ConfigurationDescriptions& descriptions);
 
 private:
-  void beginJob() override;
-  void analyze(const edm::Event&, const edm::EventSetup&) override;
-  void endJob() override;
+  void beginStream(edm::StreamID) override;
+  void produce(edm::Event&, const edm::EventSetup&) override;
+  void endStream() override;
+
+  //void beginRun(edm::Run const&, edm::EventSetup const&) override;
+  //void endRun(edm::Run const&, edm::EventSetup const&) override;
+  //void beginLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&) override;
+  //void endLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&) override;
 
   // ----------member data ---------------------------
   edm::EDGetTokenT<hgcaldigi::HGCalDigiHost> digisToken_;
   edm::EDGetTokenT<hgcaldigi::HGCalECONDPacketInfoHost> econdInfoTkn_;
   edm::EDGetTokenT<hgcaldigi::HGCalFEDPacketInfoHost> fedInfoTkn_;
-  edm::EDGetTokenT<HGCalTestSystemTrigTimeCollection> trigtimeToken_;
-  edm::EDGetTokenT<HGCalTestSystemMCP> mcpToken_;
-  edm::EDGetTokenT<HGCalTestSystemTimingIn> timeinToken_;
+
+  //edm::EDGetTokenT<HGCalTestSystemTrigTimeCollection> trigtimeToken_;
+  //edm::EDGetTokenT<HGCalTestSystemMCP> mcpToken_;
+  //edm::EDGetTokenT<HGCalTestSystemTimingIn> timeinToken_;
 
   edm::ESGetToken<hgcal::HGCalDenseIndexInfoHost, HGCalDenseIndexInfoRcd> denseIndexInfoTkn_;
   edm::ESGetToken<hgcal::HGCalMappingCellParamHost, HGCalElectronicsMappingRcd> cellTkn_;
   edm::ESGetToken<hgcal::HGCalMappingModuleParamHost, HGCalElectronicsMappingRcd> moduleTkn_;
 
-  //edm::ESGetToken<hgcal::HGCalMappingModuleParamDeviceCollection, HGCalMappingModuleIndexerRcd> moduleTkn_;
+  edm::EDPutTokenT<RawDataBuffer> rawDataBufferPutToken_;
 
-
-  //std::vector<uint16_t>  tctp, adc, adcm1, tot, toa, cm, flags, channel, fedId, fedReadoutSeq;
-  TTree* tree;
   int eventNum;
 
   std::vector<uint16_t> tctp ,adc, adcm1 ,tot ,toa ,cm ,flags ,channel ,fedId ,fedReadoutSeq, payloadLength, BX, L1A, fedBX;
@@ -137,8 +136,6 @@ private:
   std::vector<uint32_t> cbBX, cbOrbit, fedObt;
 
   std::vector<uint64_t> fedL1A;
-
-  //std::vector<uint32_t> allDataWords;
 };
 
 //
@@ -152,86 +149,47 @@ private:
 //
 // constructors and destructor
 //
-hgcal_digiAnlzr::hgcal_digiAnlzr(const edm::ParameterSet& iConfig)
-    : digisToken_(consumes<hgcaldigi::HGCalDigiHost>(iConfig.getUntrackedParameter<edm::InputTag>("hgcalDigis"))),
+rawDataBufferProducer::rawDataBufferProducer(const edm::ParameterSet& iConfig)
+: digisToken_(consumes<hgcaldigi::HGCalDigiHost>(iConfig.getUntrackedParameter<edm::InputTag>("hgcalDigis"))),
     econdInfoTkn_(consumes<hgcaldigi::HGCalECONDPacketInfoHost>(iConfig.getUntrackedParameter<edm::InputTag>("hgcalDigis"))),
     fedInfoTkn_(consumes<hgcaldigi::HGCalFEDPacketInfoHost>(iConfig.getUntrackedParameter<edm::InputTag>("hgcalDigis"))),
-    trigtimeToken_(consumes<HGCalTestSystemTrigTimeCollection>(iConfig.getParameter<edm::InputTag>("metaData"))),
-    mcpToken_(consumes<HGCalTestSystemMCP>(iConfig.getParameter<edm::InputTag>("metaData"))),
-    timeinToken_(consumes<HGCalTestSystemTimingIn>(iConfig.getParameter<edm::InputTag>("metaData"))),
+    //trigtimeToken_(consumes<HGCalTestSystemTrigTimeCollection>(iConfig.getParameter<edm::InputTag>("metaData"))),
+    //mcpToken_(consumes<HGCalTestSystemMCP>(iConfig.getParameter<edm::InputTag>("metaData"))),
+    //timeinToken_(consumes<HGCalTestSystemTimingIn>(iConfig.getParameter<edm::InputTag>("metaData"))),
     denseIndexInfoTkn_(esConsumes<hgcal::HGCalDenseIndexInfoHost, HGCalDenseIndexInfoRcd>()),
     cellTkn_(esConsumes()),
-    moduleTkn_(esConsumes())
+    moduleTkn_(esConsumes()),
+    rawDataBufferPutToken_(produces())
+{
+  //register your products
+  /* Examples
+  produces<ExampleData2>();
 
-    {
-    #ifdef THIS_IS_AN_EVENTSETUP_EXAMPLE
-      setupDataToken_ = esConsumes<SetupData, SetupRecord>();
-    #endif
+  //if do put with a label
+  produces<ExampleData2>("label");
+ 
+  //if you want to put into the Run
+  produces<ExampleData2,InRun>();
+  */
+  //now do what ever other initialization is needed
+}
 
-    edm::Service<TFileService> fs;
-  
-    tree = new TTree("Hits","HGCal_Digi_Info");
-
-    tree->Branch("eventNum",&eventNum);
-    tree->Branch("eventNum",&eventNum);
-    //tree->Branch("energy",&hit_energy);
-    tree->Branch("tctp",&tctp);
-    tree->Branch("adc",&adc);
-    tree->Branch("adcm1",&adcm1);
-    //tree->Branch("detID",&detId);
-
-    tree->Branch("tot",&tot);
-    tree->Branch("toa",&toa);
-    tree->Branch("cm",&cm);
-    tree->Branch("flags",&flags);
-
-    tree->Branch("channel",&channel);
-    tree->Branch("fedId",&fedId);
-    tree->Branch("fedReadoutSeq",&fedReadoutSeq);
-    tree->Branch("payloadLength",&payloadLength);
-
-    tree->Branch("chI1",&chI1);
-    tree->Branch("chI2",&chI2);
-    tree->Branch("modI1",&modI1);
-    tree->Branch("modI2",&modI2);
-
-    tree->Branch("isSiPM",&isSiPM);
-    tree->Branch("iscalib",&iscalib);
-    tree->Branch("BX",&BX);
-    tree->Branch("L1A",&L1A);
-    tree->Branch("Orbit",&Orbit);
-
-    tree->Branch("cm0",&cm0);
-    tree->Branch("cm1",&cm1);
-
-
-
-    }
-
-  hgcal_digiAnlzr::~hgcal_digiAnlzr() {
-  // do anything here that needs to be done at desctruction time
+rawDataBufferProducer::~rawDataBufferProducer() {
+  // do anything here that needs to be done at destruction time
   // (e.g. close files, deallocate resources etc.)
   //
   // please remove this method altogether if it would be left empty
-  }
+}
 
 //
 // member functions
 //
 
-// ------------ method called for each event  ------------
-void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup) {
-
-  #ifdef THIS_IS_AN_EVENTSETUP_EXAMPLE
-  // if the SetupData is always needed
-  auto setup = iSetup.getData(setupToken_);
-  // if need the ESHandle to check if the SetupData was there or not
-  auto pSetup = iSetup.getHandle(setupToken_);
-  #endif
-
+// ------------ method called to produce the data  ------------
+void rawDataBufferProducer::produce(edm::Event& iEvent, const edm::EventSetup& iSetup) {
   using namespace edm;
   using namespace std;
-
+  
   eventNum = iEvent.id().event();
   tctp.clear();
   adc.clear();
@@ -449,7 +407,6 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
     }
 
   }
-  tree->Fill();
 
   ///////////oooooooooooOOOOOOOOOOOOO FED Info OOOOOOOOOOOOOOOoooooooooooooooooo////////////////////
   int32_t nfed = 0;
@@ -479,7 +436,7 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
   std::vector<uint32_t> econdPacket{0}; // for now only with Econd header + eRx header + payload (without ECOND trailer and Idle word)
   econdPacket.clear();
   int econdCounter = 0;
-  uint16_t header =  170;
+  uint16_t header =  340;//170;
   uint8_t ht = 0;
   uint8_t ebo = 0;
   uint8_t ehHam = 0;
@@ -574,8 +531,8 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
   std::vector<uint32_t> CRC;
   for(int i = 0; i < 12; i++){
     CRCEcondPacket.clear();
-    for(int j = payloadCounter; j < payloadCounter+payloadLength; j++){
-      CRCEcondPacket.push_back(econdPacket[j]);
+    for(int i = payloadCounter; i < payloadCounter+payloadLength; i++){
+      CRCEcondPacket.push_back(econdPacket[i]);
       //cout << std::hex << econdPacket[i] << std::dec << endl;
     }
     //cout << endl;
@@ -585,10 +542,9 @@ void hgcal_digiAnlzr::analyze(const edm::Event& iEvent, const edm::EventSetup& i
         (CRCEcondPacket.size() - 2) * sizeof(uint32_t)
   );
   CRC.push_back(crc);
-  //cout << "CRC" << i << ": " << std::hex << crc << std::dec << endl;
-  
-  payloadCounter += payloadLength;
-  }
+  //cout << std::hex << crc << std::dec << endl;
+      
+    }
 
 
 std::vector<uint32_t> econdPacketsWithTrailer;
@@ -696,61 +652,110 @@ uint16_t status = 0;
 uint16_t crc = 0;
 uint16_t daqcrc = 0;
 
-//cout << "SLink Headersize: " << sizeof(SLinkRocketHeader_v3) << "  Size of SlinkPayload: " << payloadBytes << "  Size of SlinkTrailer: " << sizeof(SLinkRocketTrailer_v3) << endl;
-
 //unsigned char srcData[totalSize];
 
 constexpr size_t hdrsize = sizeof(SLinkRocketHeader_v3);
 constexpr size_t trsize  = sizeof(SLinkRocketTrailer_v3);
 
-std::vector<unsigned char> slinkPacket(totalSize);
+//std::vector<unsigned char> slinkPacket(totalSize);
+unsigned char slinkPacket[totalSize];
 
-auto sh0 = new ((void*)slinkPacket.data()) SLinkRocketHeader_v3(sid, l1a_types, l1a_phys, emu_status, global_event_id);  
+//auto sh0 = new ((void*)slinkPacket.data()) SLinkRocketHeader_v3(sid, l1a_types, l1a_phys, emu_status, global_event_id);  
+auto sh0 = new ((void*)slinkPacket) SLinkRocketHeader_v3(sid, l1a_types, l1a_phys, emu_status, global_event_id);  
 
+
+//std::memcpy(
+//    slinkPacket.data() + hdrsize,
+//    slinkPayload.data(),
+//    payloadBytes);
 std::memcpy(
-    slinkPacket.data() + hdrsize,
+    slinkPacket + hdrsize,
     slinkPayload.data(),
     payloadBytes);
 
-auto st0 = new ((void*)(slinkPacket.data()+hdrsize+payloadBytes)) 
+//auto st0 = new ((void*)(slinkPacket.data()+hdrsize+payloadBytes)) 
+//    SLinkRocketTrailer_v3(status, crc, fedObt[global_event_id-1], fedBX[global_event_id-1], totalSize >> SLR_WORD_NUM_BYTES_SHIFT, daqcrc);
+auto st0 = new ((void*)(slinkPacket+hdrsize+payloadBytes)) 
     SLinkRocketTrailer_v3(status, crc, fedObt[global_event_id-1], fedBX[global_event_id-1], totalSize >> SLR_WORD_NUM_BYTES_SHIFT, daqcrc);
 
 
-const uint32_t* words =
+
+/*const uint32_t* words =
     reinterpret_cast<const uint32_t*>(slinkPacket.data());
 
 for (size_t i = 0; i < totalSize/4; ++i) {
     std::cout << "Word " << i << " = 0x"
               << std::hex << std::setw(8) << std::setfill('0')
               << words[i] << std::dec << '\n';
+}*/
+
+auto rawDataBuffer = std::make_unique<RawDataBuffer>(totalSize);
+
+rawDataBuffer->addSource(sid, slinkPacket, totalSize);
+
+auto const& fragData0 = rawDataBuffer->fragmentData(sid);
+cout << "fragment size = " << fragData0.size() << endl;
+assert(fragData0.size());
+auto hdrView0 = makeSLinkRocketHeaderView(fragData0.dataHeader(hdrsize));
+auto trlView0 = makeSLinkRocketTrailerView(fragData0.dataTrailer(trsize), hdrView0->version());
+
+iEvent.put(rawDataBufferPutToken_, std::move(rawDataBuffer));
+
 }
 
-//auto rawDataBuffer = std::make_unique<RawDataBuffer>(totalSize);
-//
-//rawDataBuffer->addSource(sid, slinkPacket, totalSize);
-
-
-  }
-
-// ------------ method called once each job just before starting event loop  ------------
-void hgcal_digiAnlzr::beginJob() {
+// ------------ method called once each stream before processing any runs, lumis or events  ------------
+void rawDataBufferProducer::beginStream(edm::StreamID) {
   // please remove this method if not needed
 }
 
-// ------------ method called once each job just after ending the event loop  ------------
-void hgcal_digiAnlzr::endJob() {
+// ------------ method called once each stream after processing all runs, lumis and events  ------------
+void rawDataBufferProducer::endStream() {
   // please remove this method if not needed
 }
+
+// ------------ method called when starting to processes a run  ------------
+/*
+void
+rawDataBufferProducer::beginRun(edm::Run const&, edm::EventSetup const&)
+{
+}
+*/
+
+// ------------ method called when ending the processing of a run  ------------
+/*
+void
+rawDataBufferProducer::endRun(edm::Run const&, edm::EventSetup const&)
+{
+}
+*/
+
+// ------------ method called when starting to processes a luminosity block  ------------
+/*
+void
+rawDataBufferProducer::beginLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&)
+{
+}
+*/
+
+// ------------ method called when ending the processing of a luminosity block  ------------
+/*
+void
+rawDataBufferProducer::endLuminosityBlock(edm::LuminosityBlock const&, edm::EventSetup const&)
+{
+}
+*/
 
 // ------------ method fills 'descriptions' with the allowed parameters for the module  ------------
-void hgcal_digiAnlzr::fillDescriptions(edm::ConfigurationDescriptions& descriptions) {
+void rawDataBufferProducer::fillDescriptions(edm::ConfigurationDescriptions& descriptions) {
   //The following says we do not know what parameters are allowed so do no validation
   // Please change this to state exactly what you do use, even if it is no parameters
   edm::ParameterSetDescription desc;
-  desc.setUnknown();
-  descriptions.addDefault(desc);
+  desc.addUntracked<edm::InputTag>(
+      "hgcalDigis",
+      edm::InputTag("hgcalDigis"));
 
+  descriptions.add("rawDataBufferProducer", desc);
 }
 
 //define this as a plug-in
-DEFINE_FWK_MODULE(hgcal_digiAnlzr);
+DEFINE_FWK_MODULE(rawDataBufferProducer);
